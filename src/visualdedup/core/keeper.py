@@ -8,7 +8,7 @@ an auditable decision justification.
 from __future__ import annotations
 
 from enum import Enum
-from typing import Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 from visualdedup.core.models import FileRecord, KeeperDecision
 

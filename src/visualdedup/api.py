@@ -6,7 +6,7 @@ import concurrent.futures
 import os
 import time
 from pathlib import Path
-from typing import Callable, Dict, Generator, Iterable, List, Optional, Set, Tuple, Union
+from typing import Any, Callable, Dict, Generator, Iterable, List, Optional, Set, Tuple, Union
 
 from visualdedup.actions.cleaner import CleanMode, CleanResult, execute_cleanup
 from visualdedup.core.cache import HashCache
