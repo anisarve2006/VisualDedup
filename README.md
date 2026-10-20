@@ -57,6 +57,12 @@ visualdedup scan ./dataset --csv report.csv
 
 # Output pure pipeable JSON directly to stdout
 visualdedup scan ./dataset --json | jq .
+
+# Store duplicate images in a separate folder organized by cluster subfolders
+visualdedup scan ./dataset --store-duplicates ./duplicates_output
+
+# Move duplicate discards into a separate folder (cleaning the source directory)
+visualdedup scan ./dataset --move-duplicates ./quarantine_folder
 ```
 
 ### Inspect Two Images Side-by-Side

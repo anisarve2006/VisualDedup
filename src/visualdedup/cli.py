@@ -155,12 +155,25 @@ def cmd_scan(args: argparse.Namespace) -> int:
         vd.export_html(clusters, summary, args.html, embed_thumbnails=not args.no_embed)
         console.print(f"🌐 [green]Visual HTML report saved:[/green] {args.html}")
 
-    if args.contact_sheet and clusters:
-        sheet_path = Path(args.contact_sheet)
-        for i, c in enumerate(clusters[:3], 1):
-            sheet_file = sheet_path.parent / f"{sheet_path.stem}_{c.cluster_id}{sheet_path.suffix or '.png'}"
-            generate_cluster_contact_sheet(c, sheet_file)
-            console.print(f"🖼️ [green]Contact sheet generated:[/green] {sheet_file}")
+    if getattr(args, "store_duplicates", None):
+        res = vd.store_duplicates(
+            clusters,
+            output_dir=args.store_duplicates,
+            action="copy",
+            include_keeper=True,
+            organize_by_cluster=not getattr(args, "no_organize", False),
+        )
+        console.print(f"📁 [bold green]Duplicates stored (copied) in:[/bold green] {res.output_dir} ({res.total_files_affected} files)")
+
+    if getattr(args, "move_duplicates", None):
+        res = vd.store_duplicates(
+            clusters,
+            output_dir=args.move_duplicates,
+            action="move",
+            include_keeper=False,
+            organize_by_cluster=not getattr(args, "no_organize", False),
+        )
+        console.print(f"📦 [bold green]Duplicates moved to:[/bold green] {res.output_dir} ({res.total_files_affected} files)")
 
     return 0
 
@@ -293,6 +306,9 @@ def main(argv: Optional[list[str]] = None) -> int:
     scan_p.add_argument("--json", action="store_true", help="Print structured JSON directly to stdout")
     scan_p.add_argument("--html", default=None, help="Generate interactive HTML visual report")
     scan_p.add_argument("--contact-sheet", default=None, help="Generate visual contact sheet image")
+    scan_p.add_argument("--store-duplicates", default=None, help="Copy duplicate images into a separate output directory organized by cluster")
+    scan_p.add_argument("--move-duplicates", default=None, help="Move duplicate discards into a separate output directory")
+    scan_p.add_argument("--no-organize", action="store_true", help="Store files flattened without cluster subfolders")
     scan_p.add_argument(
         "--hash",
         choices=["phash", "dhash", "ahash", "whash", "exact"],

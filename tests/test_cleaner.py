@@ -62,6 +62,36 @@ def test_safe_cleaner_quarantine(temp_dir):
     assert "discard.png" in quarantined_files[0].name
 
 
+def test_store_duplicates_organized_by_cluster(temp_dir):
+    f1 = temp_dir / "orig.png"
+    f2 = temp_dir / "dup.png"
+    out_dir = temp_dir / "duplicates_out"
+    f1.write_bytes(b"image_content_1")
+    f2.write_bytes(b"image_content_2")
+
+    r1 = FileRecord(str(f1), 15, 1.0, 100, 100, "PNG", "RGB", "sha1")
+    r2 = FileRecord(str(f2), 15, 1.0, 50, 50, "PNG", "RGB", "sha2")
+
+    cluster = DuplicateCluster(
+        cluster_id="cluster_0042",
+        records=[r1, r2],
+        match_category="near_duplicate",
+        keeper_decision=KeeperDecision(str(f1), [str(f2)], "Higher res", "best_quality"),
+    )
+
+    vd = VisualDedup(cache_path=None)
+    res = vd.store_duplicates([cluster], output_dir=out_dir, action="copy", organize_by_cluster=True)
+
+    assert res.total_files_affected == 2
+    assert (out_dir / "cluster_0042").exists()
+    assert (out_dir / "cluster_0042" / "KEEPER_orig.png").exists()
+    assert (out_dir / "cluster_0042" / "DISCARD_dup.png").exists()
+    assert (out_dir / "duplicates_manifest.json").exists()
+    # Originals must remain untouched in copy mode
+    assert f1.exists()
+    assert f2.exists()
+
+
 def test_end_to_end_api_scan_and_reports(sample_images, temp_dir):
     json_out = temp_dir / "report.json"
     html_out = temp_dir / "report.html"

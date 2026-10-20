@@ -1,6 +1,6 @@
 """VisualDedup: High-performance visual duplicate detection and dataset cleaning."""
 
-from visualdedup.actions.cleaner import CleanMode, CleanResult
+from visualdedup.actions.cleaner import CleanMode, CleanResult, store_duplicates
 from visualdedup.api import VisualDedup
 from visualdedup.core.hasher import (
     compute_ahash,
@@ -30,6 +30,7 @@ __all__ = [
     "KeeperStrategy",
     "CleanMode",
     "CleanResult",
+    "store_duplicates",
     "FileRecord",
     "DuplicateCluster",
     "MatchEvidence",

@@ -8,7 +8,7 @@ import time
 from pathlib import Path
 from typing import Any, Callable, Dict, Generator, Iterable, List, Optional, Set, Tuple, Union
 
-from visualdedup.actions.cleaner import CleanMode, CleanResult, execute_cleanup
+from visualdedup.actions.cleaner import CleanMode, CleanResult, execute_cleanup, store_duplicates
 from visualdedup.core.cache import HashCache
 from visualdedup.core.clustering import cluster_duplicates
 from visualdedup.core.explanation import explain_match
@@ -300,6 +300,43 @@ class VisualDedup:
             clusters=clusters,
             mode=clean_mode,
             target_dir=target_dir,
+            dry_run=dry_run,
+            audit_log_path=audit_log_path,
+        )
+
+    def store_duplicates(
+        self,
+        clusters: List[DuplicateCluster],
+        output_dir: Union[str, Path],
+        action: str = "copy",  # "copy" or "move"
+        include_keeper: bool = True,
+        organize_by_cluster: bool = True,
+        tag_filenames: bool = True,
+        dry_run: bool = False,
+        audit_log_path: Optional[Union[str, Path]] = None,
+    ) -> CleanResult:
+        """Store duplicate images in a separate output directory after processing.
+
+        Args:
+            clusters: List of duplicate clusters from scan.
+            output_dir: Folder to store duplicate images into.
+            action: "copy" (keeps original intact) or "move" (relocates discards).
+            include_keeper: If True, copies the keeper image into the cluster folder too.
+            organize_by_cluster: If True, organizes files into `output_dir/cluster_0001/` subfolders.
+            tag_filenames: If True, prefixes filenames with `KEEPER_` and `DISCARD_`.
+            dry_run: If True, simulates actions without modifying disk.
+            audit_log_path: Path to write JSON audit manifest.
+
+        Returns:
+            CleanResult with action breakdown and file metrics.
+        """
+        return store_duplicates(
+            clusters=clusters,
+            output_dir=output_dir,
+            action=action,
+            include_keeper=include_keeper,
+            organize_by_cluster=organize_by_cluster,
+            tag_filenames=tag_filenames,
             dry_run=dry_run,
             audit_log_path=audit_log_path,
         )
