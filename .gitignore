@@ -44,3 +44,6 @@ htmlcov/
 *.html
 *.png
 .visualdedup_quarantine/
+datasets/
+test_images/
+demo_dataset/
