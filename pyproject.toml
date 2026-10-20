@@ -29,6 +29,12 @@ dependencies = [
     "rich>=13.0.0",
 ]
 
+[project.urls]
+Homepage = "https://github.com/anisarve2006/visualdedup"
+Repository = "https://github.com/anisarve2006/visualdedup.git"
+Issues = "https://github.com/anisarve2006/visualdedup/issues"
+Changelog = "https://github.com/anisarve2006/visualdedup/blob/main/CHANGELOG.md"
+
 [project.optional-dependencies]
 dev = [
     "pytest>=7.0.0",

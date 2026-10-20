@@ -88,6 +88,56 @@ class HashCache:
             whash=row[11],
         )
 
+    def get_valid_records_batch(
+        self, file_stats: List[Tuple[str, int, float]]
+    ) -> Dict[str, FileRecord]:
+        """Batch retrieve valid cached records for a list of (path, size, mtime) tuples."""
+        if not file_stats:
+            return {}
+
+        results: Dict[str, FileRecord] = {}
+        # Query in chunks of 500 to stay safely below SQLite variable limits
+        chunk_size = 500
+        cur = self.conn.cursor()
+
+        stat_map = {item[0]: (item[1], item[2]) for item in file_stats}
+
+        for i in range(0, len(file_stats), chunk_size):
+            chunk = file_stats[i : i + chunk_size]
+            placeholders = ",".join("?" for _ in chunk)
+            paths = [item[0] for item in chunk]
+
+            cur.execute(
+                f"""
+                SELECT path, size_bytes, mtime, width, height, format, mode,
+                       exact_hash, dhash, phash, ahash, whash
+                FROM image_cache
+                WHERE path IN ({placeholders})
+                """,
+                paths,
+            )
+
+            for row in cur.fetchall():
+                path, size, mtime = row[0], row[1], row[2]
+                expected_size, expected_mtime = stat_map.get(path, (-1, -1))
+                if size == expected_size and abs(mtime - expected_mtime) < 0.001:
+                    results[path] = FileRecord(
+                        path=path,
+                        size_bytes=size,
+                        mtime=mtime,
+                        width=row[3],
+                        height=row[4],
+                        format=row[5],
+                        mode=row[6],
+                        exact_hash=row[7],
+                        dhash=row[8],
+                        phash=row[9],
+                        ahash=row[10],
+                        whash=row[11],
+                    )
+
+        return results
+
     def upsert_record(self, record: FileRecord) -> None:
         """Insert or replace a record in the cache."""
         now = time.time()

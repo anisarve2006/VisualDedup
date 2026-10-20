@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import concurrent.futures
 import os
 import time
 from pathlib import Path
@@ -23,6 +24,40 @@ SUPPORTED_EXTENSIONS = {
 }
 
 
+def _worker_hash_image(item: Tuple[str, int, float, Optional[str]]) -> Optional[FileRecord]:
+    """Top-level worker function for parallel processing across multiple CPU cores."""
+    fpath, size, mtime, primary_only = item
+    try:
+        (
+            w,
+            h,
+            fmt,
+            mode,
+            sha256_hash,
+            dhash,
+            phash,
+            ahash,
+            whash,
+        ) = extract_image_hashes(fpath, primary_only=primary_only)
+
+        return FileRecord(
+            path=fpath,
+            size_bytes=size,
+            mtime=mtime,
+            width=w,
+            height=h,
+            format=fmt,
+            mode=mode,
+            exact_hash=sha256_hash,
+            dhash=dhash,
+            phash=phash,
+            ahash=ahash,
+            whash=whash,
+        )
+    except Exception:
+        return None
+
+
 class VisualDedup:
     """Primary engine for image deduplication, clustering, and safe cleanup."""
 
@@ -31,13 +66,15 @@ class VisualDedup:
         cache_path: Optional[Union[str, Path]] = ".visualdedup_cache.db",
         hash_type: str = "phash",  # "phash", "dhash", "ahash", "whash", or "exact"
         threshold: int = 8,
-        index_type: str = "bktree",  # "bktree", "multi_index", or "linear"
+        index_type: str = "multi_index",  # "multi_index" (fastest) or "bktree"
+        max_workers: Optional[int] = None,
     ):
         self.cache_path = str(cache_path) if cache_path else None
         self.cache = HashCache(self.cache_path) if self.cache_path else None
         self.hash_type = hash_type.lower()
         self.threshold = threshold
         self.index_type = index_type.lower()
+        self.max_workers = max_workers
 
     def _discover_images(
         self, paths: Iterable[Union[str, Path]], recursive: bool = True
@@ -56,70 +93,24 @@ class VisualDedup:
                         found_files.append(str(entry.resolve()))
         return sorted(list(set(found_files)))
 
-    def _get_or_compute_record(self, filepath: str) -> Optional[Tuple[FileRecord, bool]]:
-        """Retrieve record from cache or compute it. Returns (record, is_cached)."""
-        try:
-            stat = os.stat(filepath)
-            size = stat.st_size
-            mtime = stat.st_mtime
-        except OSError:
-            return None
-
-        if self.cache:
-            cached = self.cache.get_valid_record(filepath, size, mtime)
-            if cached:
-                return cached, True
-
-        # Cache miss - compute hashes
-        try:
-            (
-                w,
-                h,
-                fmt,
-                mode,
-                sha256_hash,
-                dhash,
-                phash,
-                ahash,
-                whash,
-            ) = extract_image_hashes(filepath)
-
-            record = FileRecord(
-                path=filepath,
-                size_bytes=size,
-                mtime=mtime,
-                width=w,
-                height=h,
-                format=fmt,
-                mode=mode,
-                exact_hash=sha256_hash,
-                dhash=dhash,
-                phash=phash,
-                ahash=ahash,
-                whash=whash,
-            )
-
-            if self.cache:
-                self.cache.upsert_record(record)
-
-            return record, False
-        except Exception:
-            # File unreadable or corrupted
-            return None
-
     def scan(
         self,
         paths: Union[str, Path, Iterable[Union[str, Path]]],
         recursive: bool = True,
         keeper_strategy: Optional[KeeperStrategy] = KeeperStrategy.BEST_QUALITY,
         progress_callback: Optional[Callable[[int, int], None]] = None,
+        max_workers: Optional[int] = None,
     ) -> Tuple[List[DuplicateCluster], ScanSummary]:
         """Scan image files and directories, discover duplicate clusters, and assign keepers.
+
+        Utilizes multi-process parallelism, batch cache lookup, and sub-quadratic indexing.
 
         Returns:
             (clusters, summary)
         """
         start_time = time.time()
+        workers = max_workers if max_workers is not None else self.max_workers
+
         if isinstance(paths, (str, Path)):
             input_paths = [paths]
         else:
@@ -132,20 +123,64 @@ class VisualDedup:
         cache_hits = 0
         cache_misses = 0
 
-        for idx, fpath in enumerate(image_files):
-            res = self._get_or_compute_record(fpath)
-            if res is not None:
-                rec, was_cached = res
-                records[fpath] = rec
-                if was_cached:
-                    cache_hits += 1
-                else:
-                    cache_misses += 1
+        # Step 1: Gather file stats
+        file_stats: List[Tuple[str, int, float]] = []
+        for fpath in image_files:
+            try:
+                st = os.stat(fpath)
+                file_stats.append((fpath, st.st_size, st.st_mtime))
+            except OSError:
+                continue
 
-            if progress_callback:
-                progress_callback(idx + 1, total_files)
+        # Step 2: Batch cache retrieval
+        missing_items: List[Tuple[str, int, float, Optional[str]]] = []
+        cached_records: Dict[str, FileRecord] = {}
 
-        # 1. Exact SHA-256 matching
+        if self.cache:
+            cached_records = self.cache.get_valid_records_batch(file_stats)
+            cache_hits = len(cached_records)
+            records.update(cached_records)
+
+        # Primary hash optimization: if exact-only, we don't compute perceptual hashes
+        primary_only = None
+        if self.hash_type in ("phash", "dhash"):
+            primary_only = self.hash_type
+
+        for fpath, size, mtime in file_stats:
+            if fpath not in records:
+                missing_items.append((fpath, size, mtime, primary_only))
+
+        cache_misses = len(missing_items)
+
+        # Step 3: Compute missing records in parallel or sequentially
+        new_records: List[FileRecord] = []
+        if missing_items:
+            effective_workers = workers if workers is not None else min(32, (os.cpu_count() or 4) * 2)
+            if len(missing_items) > 4 and effective_workers > 1:
+                with concurrent.futures.ThreadPoolExecutor(max_workers=effective_workers) as executor:
+                    for rec in executor.map(_worker_hash_image, missing_items):
+                        if rec is not None:
+                            records[rec.path] = rec
+                            new_records.append(rec)
+                        if progress_callback:
+                            progress_callback(len(records), total_files)
+            else:
+                for item in missing_items:
+                    rec = _worker_hash_image(item)
+                    if rec is not None:
+                        records[rec.path] = rec
+                        new_records.append(rec)
+                    if progress_callback:
+                        progress_callback(len(records), total_files)
+
+            # Step 4: Batch upsert into SQLite cache
+            if self.cache and new_records:
+                self.cache.upsert_records_batch(new_records)
+
+        if progress_callback:
+            progress_callback(total_files, total_files)
+
+        # Step 5: Exact SHA-256 matching (O(N))
         pairwise_matches: List[Tuple[str, str, MatchEvidence]] = []
         sha_groups: Dict[str, List[FileRecord]] = {}
         for rec in records.values():
@@ -153,49 +188,45 @@ class VisualDedup:
 
         for sha, group in sha_groups.items():
             if len(group) > 1:
-                # Add exact pairwise edges
                 for i in range(len(group)):
                     for j in range(i + 1, len(group)):
                         ev = explain_match(group[i], group[j], "sha256", 0, 0)
                         pairwise_matches.append((group[i].path, group[j].path, ev))
 
-        # 2. Perceptual hashing (if not exact-only)
+        # Step 6: Sub-quadratic perceptual candidate search
         if self.hash_type != "exact":
             hash_getter = lambda r: getattr(r, self.hash_type, None)
 
-            # Build index for sub-quadratic search
-            if self.index_type == "multi_index":
-                index = MultiIndexHashIndex[FileRecord]()
-            else:
+            # Multi-Index Hash or BK-Tree
+            if self.index_type == "bktree":
                 index = BKTree[FileRecord]()
+            else:
+                index = MultiIndexHashIndex[FileRecord]()
 
-            # Query against indexed records incrementally to avoid double matching
             for rec in records.values():
                 h_str = hash_getter(rec)
                 if not h_str:
                     continue
                 h_int = hex_to_int(h_str)
 
-                # Query already indexed items
+                # Query against already indexed items
                 neighbors = index.query(h_int, self.threshold)
                 for other_rec, dist in neighbors:
-                    # Avoid duplicate edge if exact hash already connected them
                     if rec.exact_hash == other_rec.exact_hash:
                         continue
                     ev = explain_match(rec, other_rec, self.hash_type, dist, self.threshold)
                     pairwise_matches.append((rec.path, other_rec.path, ev))
 
-                # Insert into index
                 index.insert(rec, h_int)
 
-        # 3. Cluster duplicates using connected components
+        # Step 7: Cluster duplicates using connected components
         clusters = cluster_duplicates(records, pairwise_matches)
 
-        # 4. Recommend keepers
+        # Step 8: Recommend keepers
         if keeper_strategy:
             self.recommend_keepers(clusters, strategy=keeper_strategy)
 
-        # 5. Build summary
+        # Step 9: Build summary
         total_clusters = len(clusters)
         total_duplicates = sum(len(c.records) for c in clusters)
         reclaimable_bytes = sum(c.potential_savings_bytes for c in clusters)

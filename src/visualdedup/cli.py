@@ -91,6 +91,7 @@ def cmd_scan(args: argparse.Namespace) -> int:
             recursive=not args.no_recursive,
             keeper_strategy=keeper_strategy,
             progress_callback=progress_cb,
+            max_workers=args.workers,
         )
 
     # Display results table
@@ -267,6 +268,7 @@ def main(argv: Optional[list[str]] = None) -> int:
         help="Keeper selection rule (default: best_quality)",
     )
     scan_p.add_argument("--cache", default=".visualdedup_cache.db", help="SQLite cache path")
+    scan_p.add_argument("--workers", "-w", type=int, default=None, help="Number of CPU worker processes (default: all CPU cores)")
     scan_p.add_argument("--no-cache", action="store_true", help="Disable caching")
     scan_p.add_argument("--no-recursive", action="store_true", help="Do not search subdirectories")
     scan_p.add_argument("--no-embed", action="store_true", help="Do not embed base64 thumbnails in HTML")
