@@ -115,6 +115,24 @@ def test_cli_scan_command(sample_images, temp_dir):
     assert report_html.exists()
 
 
+def test_cli_scan_csv_and_json(sample_images, temp_dir):
+    report_csv = temp_dir / "cli_report.csv"
+
+    ret = main([
+        "scan",
+        str(sample_images["dir"]),
+        "--csv", str(report_csv),
+        "--threshold", "8",
+        "--cache", str(temp_dir / "cli_cache_csv.db"),
+    ])
+
+    assert ret == 0
+    assert report_csv.exists()
+    content = report_csv.read_text(encoding="utf-8")
+    assert "cluster_id,match_category,role" in content
+    assert "KEEPER" in content
+
+
 def test_cli_inspect_command(sample_images):
     ret = main([
         "inspect",
@@ -122,3 +140,11 @@ def test_cli_inspect_command(sample_images):
         str(sample_images["resized"]),
     ])
     assert ret == 0
+
+    ret_json = main([
+        "inspect",
+        str(sample_images["original"]),
+        str(sample_images["resized"]),
+        "--json",
+    ])
+    assert ret_json == 0

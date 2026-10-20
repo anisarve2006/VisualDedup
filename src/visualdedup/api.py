@@ -16,6 +16,7 @@ from visualdedup.core.hasher import extract_image_hashes, hex_to_int
 from visualdedup.core.indexing import BKTree, MultiIndexHashIndex
 from visualdedup.core.keeper import KeeperStrategy, select_keeper
 from visualdedup.core.models import DuplicateCluster, FileRecord, MatchEvidence, ScanSummary
+from visualdedup.reports.csv_report import generate_csv_report
 from visualdedup.reports.html_report import generate_html_report
 from visualdedup.reports.json_report import generate_json_report
 
@@ -264,6 +265,14 @@ class VisualDedup:
     ) -> str:
         """Export scan results as JSON."""
         return generate_json_report(clusters, summary, output_path=output_path)
+
+    def export_csv(
+        self,
+        clusters: List[DuplicateCluster],
+        output_path: Union[str, Path],
+    ) -> str:
+        """Export scan results as structured tabular CSV."""
+        return generate_csv_report(clusters, output_path=output_path)
 
     def export_html(
         self,

@@ -20,6 +20,7 @@ from visualdedup.core.models import (
     ScanSummary,
 )
 from visualdedup.reports.contact_sheet import generate_cluster_contact_sheet
+from visualdedup.reports.csv_report import generate_csv_report
 from visualdedup.reports.html_report import generate_html_report
 from visualdedup.reports.json_report import generate_json_report
 
@@ -42,6 +43,7 @@ __all__ = [
     "extract_image_hashes",
     "hamming_distance",
     "generate_json_report",
+    "generate_csv_report",
     "generate_html_report",
     "generate_cluster_contact_sheet",
 ]

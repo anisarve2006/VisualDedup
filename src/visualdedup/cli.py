@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import sys
 import time
@@ -52,16 +53,19 @@ def format_size(num_bytes: int) -> str:
 
 def cmd_scan(args: argparse.Namespace) -> int:
     """Execute duplicate scan on specified paths."""
-    console.print(
-        Panel.fit(
-            f"[bold cyan]VisualDedup v0.2.0[/bold cyan]\n"
-            f"[dim]Scanning targets:[/dim] {', '.join(args.paths)}\n"
-            f"[dim]Algorithm:[/dim] [green]{args.hash}[/green] (threshold <= {args.threshold}) | [dim]Index:[/dim] {args.index}\n"
-            f"[dim]Keeper Rule:[/dim] [yellow]{args.keeper}[/yellow]",
-            title="🔍 Scanning Collection",
-            border_style="cyan",
+    is_json_output = getattr(args, "json", False)
+
+    if not is_json_output:
+        console.print(
+            Panel.fit(
+                f"[bold cyan]VisualDedup v0.2.0[/bold cyan]\n"
+                f"[dim]Scanning targets:[/dim] {', '.join(args.paths)}\n"
+                f"[dim]Algorithm:[/dim] [green]{args.hash}[/green] (threshold <= {args.threshold}) | [dim]Index:[/dim] {args.index}\n"
+                f"[dim]Keeper Rule:[/dim] [yellow]{args.keeper}[/yellow]",
+                title="🔍 Scanning Collection",
+                border_style="cyan",
+            )
         )
-    )
 
     cache_path = None if args.no_cache else args.cache
     keeper_strategy = KeeperStrategy(args.keeper)
@@ -73,26 +77,40 @@ def cmd_scan(args: argparse.Namespace) -> int:
         index_type=args.index,
     )
 
-    with Progress(
-        SpinnerColumn(),
-        TextColumn("[progress.description]{task.description}"),
-        BarColumn(),
-        TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
-        TimeRemainingColumn(),
-        console=console,
-    ) as progress:
-        task = progress.add_task("[cyan]Hashing & indexing images...", total=100)
+    if not is_json_output:
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            BarColumn(),
+            TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
+            TimeRemainingColumn(),
+            console=console,
+        ) as progress:
+            task = progress.add_task("[cyan]Hashing & indexing images...", total=100)
 
-        def progress_cb(current: int, total: int):
-            progress.update(task, completed=int((current / max(total, 1)) * 100))
+            def progress_cb(current: int, total: int):
+                progress.update(task, completed=int((current / max(total, 1)) * 100))
 
+            clusters, summary = vd.scan(
+                args.paths,
+                recursive=not args.no_recursive,
+                keeper_strategy=keeper_strategy,
+                progress_callback=progress_cb,
+                max_workers=args.workers,
+            )
+    else:
         clusters, summary = vd.scan(
             args.paths,
             recursive=not args.no_recursive,
             keeper_strategy=keeper_strategy,
-            progress_callback=progress_cb,
             max_workers=args.workers,
         )
+
+    # Output structured formats
+    if is_json_output:
+        json_str = vd.export_json(clusters, summary, args.output)
+        print(json_str)
+        return 0
 
     # Display results table
     table = Table(title="📊 Scan Summary", border_style="blue")
@@ -128,6 +146,10 @@ def cmd_scan(args: argparse.Namespace) -> int:
     if args.output:
         vd.export_json(clusters, summary, args.output)
         console.print(f"💾 [green]JSON report saved:[/green] {args.output}")
+
+    if getattr(args, "csv", None):
+        vd.export_csv(clusters, args.csv)
+        console.print(f"📄 [green]CSV report saved:[/green] {args.csv}")
 
     if args.html:
         vd.export_html(clusters, summary, args.html, embed_thumbnails=not args.no_embed)
@@ -175,6 +197,23 @@ def cmd_inspect(args: argparse.Namespace) -> int:
     ah_dist = hamming_distance(ah1, ah2)
     wh_dist = hamming_distance(wh1, wh2)
 
+    ev = explain_match(rec1, rec2, "phash", ph_dist, 10)
+
+    if getattr(args, "json", False):
+        data = {
+            "image1": rec1.to_dict(),
+            "image2": rec2.to_dict(),
+            "distances": {
+                "dhash": dh_dist,
+                "phash": ph_dist,
+                "ahash": ah_dist,
+                "whash": wh_dist,
+            },
+            "diagnosis": ev.to_dict(),
+        }
+        print(json.dumps(data, indent=2))
+        return 0
+
     table.add_row("dHash (Gradient)", dh1, dh2, f"Hamming: {dh_dist}")
     table.add_row("pHash (DCT)", ph1, ph2, f"Hamming: {ph_dist}")
     table.add_row("aHash (Average)", ah1, ah2, f"Hamming: {ah_dist}")
@@ -182,7 +221,6 @@ def cmd_inspect(args: argparse.Namespace) -> int:
 
     console.print(table)
 
-    ev = explain_match(rec1, rec2, "phash", ph_dist, 10)
     console.print(
         Panel(
             f"[bold]Diagnosis:[/bold] [yellow]{ev.match_type.upper()}[/yellow]\n"
@@ -251,6 +289,8 @@ def main(argv: Optional[list[str]] = None) -> int:
     scan_p = subparsers.add_parser("scan", help="Scan images for exact and visual duplicates")
     scan_p.add_argument("paths", nargs="+", help="Folders or image files to scan")
     scan_p.add_argument("--output", "-o", default=None, help="Save JSON report to file")
+    scan_p.add_argument("--csv", default=None, help="Save structured CSV report to file")
+    scan_p.add_argument("--json", action="store_true", help="Print structured JSON directly to stdout")
     scan_p.add_argument("--html", default=None, help="Generate interactive HTML visual report")
     scan_p.add_argument("--contact-sheet", default=None, help="Generate visual contact sheet image")
     scan_p.add_argument(
@@ -277,6 +317,7 @@ def main(argv: Optional[list[str]] = None) -> int:
     inspect_p = subparsers.add_parser("inspect", help="Compare two images side-by-side with diagnostics")
     inspect_p.add_argument("image1", help="Path to first image")
     inspect_p.add_argument("image2", help="Path to second image")
+    inspect_p.add_argument("--json", action="store_true", help="Output structured JSON instead of table")
 
     # clean sub-command
     clean_p = subparsers.add_parser("clean", help="Clean duplicates using keeper recommendations")

@@ -51,12 +51,22 @@ visualdedup scan ./dataset --hash phash --threshold 8 --contact-sheet sheet.png
 
 # Fast candidate indexing with Multi-Index Hashing for large collections
 visualdedup scan ./large_collection --index multi_index --keeper best_quality
+
+# Output structured tabular CSV for data pipelines / Excel
+visualdedup scan ./dataset --csv report.csv
+
+# Output pure pipeable JSON directly to stdout
+visualdedup scan ./dataset --json | jq .
 ```
 
 ### Inspect Two Images Side-by-Side
 
 ```bash
+# Terminal table view:
 visualdedup inspect original.png compressed_downscaled.jpg
+
+# Structured JSON view for scripts and CI:
+visualdedup inspect original.png compressed_downscaled.jpg --json
 ```
 
 Outputs a detailed comparison table with SHA-256, dHash, pHash, aHash, wHash distances, resolution differences, and an automated diagnosis (e.g. `Resized copy: downscaled ~2.0x; JPEG recompression`).
