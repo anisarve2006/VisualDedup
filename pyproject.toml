@@ -8,13 +8,12 @@ version = "0.2.0"
 description = "High-performance visual duplicate detection, intelligent keeper recommendation, and safe dataset cleanup."
 readme = "README.md"
 authors = [{ name = "VisualDedup Team" }]
-license = { text = "MIT" }
+license = "MIT"
 requires-python = ">=3.9"
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
     "Intended Audience :: Science/Research",
-    "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
