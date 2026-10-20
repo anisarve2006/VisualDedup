@@ -47,3 +47,4 @@ htmlcov/
 datasets/
 test_images/
 demo_dataset/
+isolated_duplicates_output/
